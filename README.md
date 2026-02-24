@@ -1,1 +1,1 @@
-# home-network-coordinating-autoupdater
+# home-network-coordinator
