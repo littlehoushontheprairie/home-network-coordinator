@@ -16,8 +16,8 @@ class PorkbunApiClient:
     __secrets: dict = {}
 
     def __init__(self):
-        api_key: str = environ.get("PORKBUN_API_KEY", None)
-        secret_api_key: str = environ.get("PORKBUN_SECRET_API_KEY", None)
+        api_key = environ.get("PORKBUN_API_KEY")
+        secret_api_key = environ.get("PORKBUN_SECRET_API_KEY")
 
         if api_key is None or not len(api_key) or secret_api_key is None or not len(secret_api_key):
             raise PorkbunApiClientError("Porkbun API secrets are not set in environment variables: PORKBUN_API_KEY and PORKBUN_SECRET_API_KEY")
@@ -27,16 +27,14 @@ class PorkbunApiClient:
             "secretapikey" : secret_api_key
         }
 
-    def get_certs(self, domain):
-        url: str = f"{self.__PORKBUN_API_URL}/ssl/retrieve/{domain}"
-
-        response: requests.Response = requests.post(
-            url = url,
+    def fetch_certificates_by_domain(self, domain: str):
+        response = requests.post(
+            url = f"{self.__PORKBUN_API_URL}/ssl/retrieve/{domain}",
             json = self.__secrets
         )
 
         if response.status_code == 200:
-            certs: dict = response.json()
+            certs = response.json()
 
             return PorkbunApiCertificates(
                 private_key = certs.get("privatekey"),
@@ -45,7 +43,3 @@ class PorkbunApiClient:
             )
         else:
             raise PorkbunApiClientError(f"Porkbun API returned an unexpected status code: {response.status_code}")
-
-
-
-

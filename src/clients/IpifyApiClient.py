@@ -9,7 +9,7 @@ class IpifyApiClient:
     @staticmethod
     def get_ip() -> str:
         try:
-            response: requests.Response = requests.get(IpifyApiClient.__IPIFY_API_URL)
+            response = requests.get(IpifyApiClient.__IPIFY_API_URL)
 
             if response.status_code == 200:
                 return response.json().get("ip", "")
