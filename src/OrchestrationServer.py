@@ -1,12 +1,14 @@
 from fastapi import FastAPI, Header, Body, Path, HTTPException
 from typing import Annotated
 
-from clients.NginxApiClient import NginxApiClient, NginxAccessListClient
+from clients.NginxApiClient import NginxApiClient, NginxAccessListClient, NginxCertificates
+from clients.PorkbunApiClient import PorkbunApiClient, PorkbunApiCertificates
 from entities.OrchestratedRequests import NginxAllowListRequest
 from helpers.AuthenticationHelper import AuthenticationHelper
 
 authentication_helper = AuthenticationHelper()
-nginx_api_client: NginxApiClient = NginxApiClient()
+nginx_api_client = NginxApiClient()
+porkbun_client = PorkbunApiClient()
 
 app: FastAPI = FastAPI()
 

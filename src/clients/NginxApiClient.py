@@ -1,5 +1,5 @@
 import requests
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
 from os import environ
 
 class NginxApiClientError(Exception):
@@ -117,8 +117,8 @@ class NginxApiClient:
 
     def update_certificate(self, certificate_id: str, new_certificates: NginxCertificates) -> NginxCertificates:
         response = requests.post(
-            url = f"{self.__api_url}/certificates/{certificate_id}",
-            json = new_certificates,
+            url = f"{self.__api_url}/nginx/certificates/{certificate_id}/upload",
+            json = asdict(new_certificates),
             headers = {"Authorization": f"Bearer {self.get_token()}"}
         )
 
@@ -126,11 +126,11 @@ class NginxApiClient:
             data = response.json()
             return NginxCertificates(**data)
 
-        raise NginxApiClientError(f"Nginx API client encountered an error: Unable to update certificate.")
+        raise NginxApiClientError(f"Nginx API client encountered an error: Unable to update certificate. status_code={response.status_code}, body={response.json()}")
 
     def fetch_certificate_by_id(self, certificate_id: str) -> NginxCertificates | None:
         response = requests.get(
-            url = f"{self.__api_url}/certificates/{certificate_id}",
+            url = f"{self.__api_url}/nginx/certificates/{certificate_id}",
             headers = {"Authorization": f"Bearer {self.get_token()}"}
         )
 
@@ -140,7 +140,7 @@ class NginxApiClient:
         elif response.status_code == 404:
             return None
         else:
-            raise NginxApiClientError(f"Nginx API client encountered an error: Unable to retrieve certificate by ID.")
+            raise NginxApiClientError(f"Nginx API client encountered an error: Unable to retrieve certificate by ID. status_code={response.status_code}, body={response.json()}")
 
     def fetch_access_list_by_id(self, access_list_id: int, expand_param: list[str] | None) -> NginxAccessList:
         response = requests.get(

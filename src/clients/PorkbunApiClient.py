@@ -1,6 +1,7 @@
+import requests
+
 from os import environ
 from dataclasses import dataclass
-import requests
 
 class PorkbunApiClientError(Exception):
     pass
