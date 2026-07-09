@@ -1,3 +1,4 @@
 requests
 bcrypt
 fastapi[standard]
+linode-api4

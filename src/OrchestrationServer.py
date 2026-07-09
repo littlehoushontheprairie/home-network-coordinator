@@ -1,41 +1,65 @@
-from fastapi import FastAPI, Header, Body, Path, HTTPException
+import os
+
+from fastapi import FastAPI, Body, Depends, HTTPException
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from typing import Annotated
 
-from clients.NginxApiClient import NginxApiClient, NginxAccessListClient, NginxCertificates
-from clients.PorkbunApiClient import PorkbunApiClient, PorkbunApiCertificates
-from entities.OrchestratedRequests import NginxAllowListRequest
+from clients.NginxApiClient import NginxApiClient, NginxAccessListClient
+from entities.OrchestrationRequests import UpdateIpRequest
 from helpers.AuthenticationHelper import AuthenticationHelper
 
 authentication_helper = AuthenticationHelper()
 nginx_api_client = NginxApiClient()
-porkbun_client = PorkbunApiClient()
 
-app: FastAPI = FastAPI()
+app = FastAPI()
+security = HTTPBearer()
 
-@app.patch("/api/nginx/access-list/{access_list_id}", status_code = 200)
-async def update_nginx_access_list(
-    access_list_id: Annotated[int, Path()],
-    authorization: Annotated[str | None, Header()] = None,
-    request: Annotated[NginxAllowListRequest | None, Body()] = None
+@app.patch("/api/allow-list", status_code = 200)
+async def update_ip_in_allow_list(
+    authorization: Annotated[HTTPAuthorizationCredentials, Depends(security)],
+    request: Annotated[UpdateIpRequest, Body()]
 ):
-    if not authentication_helper.validate_authorization_header(authorization):
+    if not authentication_helper.validate_token(authorization.credentials):
         raise HTTPException(status_code = 401)
 
-    if request is None or not request.is_valid():
+    if not request.is_valid():
         raise HTTPException(status_code = 400, detail = "All fields are required: from_ip and to_ip.")
 
-    access_list = nginx_api_client.fetch_access_list_by_id(access_list_id, ["clients"])
+    allow_list = nginx_api_client.fetch_access_list_by_name(os.getenv("ORCHESTRATION_ALLOWLIST_NAME", "allowlist"))
 
-    # Remove clients matching the from_ip
-    access_list.clients = [client for client in access_list.clients if client.address != request.from_ip]
+    # if access list has the from_ip update the client to the to_ip
+    if allow_list is not None and len(allow_list.clients) and any(client.address == request.from_ip for client in allow_list.clients):
+        # Remove clients matching from_ip
+        allow_list.clients = [client for client in allow_list.clients if client.address != request.from_ip]
 
-    # Add client for to_ip
-    access_list.clients.append(NginxAccessListClient(access_list_id = access_list_id, address = request.to_ip))
+        # Only add to_ip if it's not already in the list
+        if not any(client.address == request.to_ip for client in allow_list.clients):
+            allow_list.clients.append(NginxAccessListClient(access_list_id = allow_list.id, address = request.to_ip))
 
-    # if to_ip already exists, don't update
-    if len(access_list.clients) > 1 and any(client.address == request.to_ip for client in access_list.clients if client.address != request.to_ip):
-        return access_list
+        updated_access_list = nginx_api_client.update_access_list(allow_list)
 
-    updated_access_list = nginx_api_client.update_access_list(access_list)
+        return updated_access_list
 
-    return updated_access_list
+    raise HTTPException(status_code = 412, detail = f"Client with IP, {request.from_ip}, was not found in access list.")
+
+@app.patch("/api/proxy-hosts", status_code = 200)
+async def update_ip_in_proxy_hosts(
+    authorization: Annotated[HTTPAuthorizationCredentials, Depends(security)],
+    request: Annotated[UpdateIpRequest, Body()]
+):
+    if not authentication_helper.validate_token(authorization.credentials):
+        raise HTTPException(status_code = 401)
+
+    if not request.is_valid():
+        raise HTTPException(status_code = 400, detail = "All fields are required: from_ip and to_ip.")
+
+    proxy_hosts = nginx_api_client.fetch_proxy_hosts_by_ip(request.from_ip)
+
+    if proxy_hosts is not None and len(proxy_hosts):
+        for proxy_host in proxy_hosts:
+            proxy_host.forward_host = request.to_ip
+            nginx_api_client.update_proxy_host(proxy_host)
+
+        return proxy_hosts
+
+    raise HTTPException(status_code = 412, detail = f"No proxy hosts with IP address, {request.from_ip}, were updated.")

@@ -1,6 +1,9 @@
+import os
 import requests
-from dataclasses import dataclass, field, asdict
-from os import environ
+
+from helpers.DataclassHelper import DataclassHelper
+from dataclasses import dataclass
+from typing import Optional
 
 class NginxApiClientError(Exception):
     pass
@@ -11,26 +14,20 @@ class NginxApiToken:
     token: str
 
 @dataclass
-class NginxCertificates:
-    certificate: str
-    certificate_key: str
-    intermediate_certificate: str
-
-@dataclass
 class NginxAccessList:
-    id: int | None
+    id: Optional[int]
     name: str
-    created_on: str | None
-    modified_on: str | None
+    created_on: Optional[str]
+    modified_on: Optional[str]
     owner_user_id: int
     satisfy_any: bool
     pass_auth: bool
     proxy_host_count: int
-    clients: list[NginxAccessListClient] | None
-    owner: dict = field(default_factory=dict) # this can be ignored
-    items: list[dict] = field(default_factory=list) # this can be ignored
-    proxy_hosts: list[dict] = field(default_factory=list) # this can be ignored
-    meta: dict = field(default_factory=dict) # this can be ignored
+    clients: list[NginxAccessListClient]
+
+    @staticmethod
+    def from_dict(data: dict) -> NginxAccessList:
+        return DataclassHelper.from_dict(NginxAccessList, data)
 
     def to_update_request(self):
         return {
@@ -44,11 +41,10 @@ class NginxAccessList:
 class NginxAccessListClient:
     address: str
     access_list_id: int
-    id: int | None = None
-    created_on: str | None = None
-    modified_on: str | None = None
+    id: Optional[int] = None
+    created_on: Optional[str] = None
+    modified_on: Optional[str] = None
     directive: str = "allow"
-    meta: dict = field(default_factory=dict) # this can be ignored
 
     def to_update_request(self):
         return {
@@ -56,16 +52,64 @@ class NginxAccessListClient:
             "address": self.address
         }
 
+@dataclass
+class NginxProxyHost:
+    id: int
+    created_on: Optional[str]
+    modified_on: Optional[str]
+    owner_user_id: int
+    domain_names: list[str]
+    forward_host: str
+    forward_port: int
+    access_list_id: Optional[int]
+    certificate_id: Optional[int]
+    ssl_forced: bool
+    caching_enabled: bool
+    block_exploits: bool
+    advanced_config: str
+    allow_websocket_upgrade: bool
+    http2_support: bool
+    forward_scheme: str
+    enabled: bool
+    locations: list
+    hsts_enabled: bool
+    hsts_subdomains: bool
+
+    @staticmethod
+    def from_dict(data: dict) -> NginxProxyHost:
+        return DataclassHelper.from_dict(NginxProxyHost, data)
+
+    def to_update_request(self):
+        return {
+            "domain_names": self.domain_names,
+            "forward_host": self.forward_host,
+            "forward_port": self.forward_port,
+            "access_list_id": self.access_list_id,
+            "certificate_id": self.certificate_id,
+            "ssl_forced": self.ssl_forced,
+            "caching_enabled": self.caching_enabled,
+            "block_exploits": self.block_exploits,
+            "advanced_config": self.advanced_config,
+            "allow_websocket_upgrade": self.allow_websocket_upgrade,
+            "http2_support": self.http2_support,
+            "forward_scheme": self.forward_scheme,
+            "enabled": self.enabled,
+            "hsts_enabled": self.hsts_enabled,
+            "hsts_subdomains": self.hsts_subdomains
+        }
+
+
 class NginxApiClient:
+    __REQUEST_TIMEOUT: int = 30 # in seconds
     __api_url: str
     __identity: str
     __secret: str
-    __token: NginxApiToken | None = None
+    __token: Optional[NginxApiToken] = None
 
     def __init__(self):
-        base_url = environ.get("NGINX_API_BASE_URL")
-        self.__identity = environ.get("NGINX_API_IDENTITY")
-        self.__secret = environ.get("NGINX_API_SECRET")
+        base_url = os.getenv("NGINX_API_BASE_URL")
+        self.__identity = os.getenv("NGINX_API_IDENTITY")
+        self.__secret = os.getenv("NGINX_API_SECRET")
 
         if base_url is None or not len(base_url):
             raise NginxApiClientError("Nginx API base URL is not set as environment variable: NGINX_API_BASE_URL")
@@ -75,22 +119,22 @@ class NginxApiClient:
 
         self.__api_url = f"{base_url}/api"
 
-    def check_token(self, token: NginxApiToken | None) -> NginxApiToken | None:
+    def check_token(self, token: Optional[NginxApiToken]) -> Optional[NginxApiToken]:
         if token is None:
             return None
 
         response = requests.get(
             url = f"{self.__api_url}/tokens",
-            headers = {"Authorization": f"Bearer {token.token}"}
+            headers = {"Authorization": f"Bearer {token.token}"},
+            timeout = self.__REQUEST_TIMEOUT
         )
 
         if response.status_code == 200:
-            data = response.json()
-            return NginxApiToken(**data)
+            return NginxApiToken(**response.json())
         if response.status_code == 400:
             return None
         else:
-            raise NginxApiClientError(f"Nginx API client encountered an error: Token expired. status_code={response.status_code}, body={response.json()}")
+            raise NginxApiClientError(f"Nginx API client encountered an error during token check. status_code={response.status_code}, body={response.json()}")
 
     def request_token(self) -> NginxApiToken:
         response = requests.post(
@@ -98,12 +142,12 @@ class NginxApiClient:
             json = {
                 "identity" : self.__identity,
                 "secret" : self.__secret
-            }
+            },
+            timeout = self.__REQUEST_TIMEOUT
         )
 
         if response.status_code == 200:
-            data = response.json()
-            return NginxApiToken(**data)
+            return NginxApiToken(**response.json())
         else:
             raise NginxApiClientError("Nginx API client encountered an error: Unable to authenticate.")
 
@@ -115,58 +159,67 @@ class NginxApiClient:
 
         return self.__token.token
 
-    def update_certificate(self, certificate_id: str, new_certificates: NginxCertificates) -> NginxCertificates:
-        response = requests.post(
-            url = f"{self.__api_url}/nginx/certificates/{certificate_id}/upload",
-            json = asdict(new_certificates),
-            headers = {"Authorization": f"Bearer {self.get_token()}"}
-        )
-
-        if response.status_code == 200:
-            data = response.json()
-            return NginxCertificates(**data)
-
-        raise NginxApiClientError(f"Nginx API client encountered an error: Unable to update certificate. status_code={response.status_code}, body={response.json()}")
-
-    def fetch_certificate_by_id(self, certificate_id: str) -> NginxCertificates | None:
+    def fetch_access_list_by_name(self, access_list_name: str) -> Optional[NginxAccessList]:
         response = requests.get(
-            url = f"{self.__api_url}/nginx/certificates/{certificate_id}",
-            headers = {"Authorization": f"Bearer {self.get_token()}"}
+            url = f"{self.__api_url}/nginx/access-lists?expand=clients",
+            headers = {"Authorization": f"Bearer {self.get_token()}"},
+            timeout = self.__REQUEST_TIMEOUT
         )
 
         if response.status_code == 200:
-            data = response.json()
-            return NginxCertificates(**data)
+            for access_list in response.json():
+                if access_list.get("name", "") == access_list_name:
+                    return NginxAccessList.from_dict(access_list)
+
+            return None
         elif response.status_code == 404:
             return None
         else:
-            raise NginxApiClientError(f"Nginx API client encountered an error: Unable to retrieve certificate by ID. status_code={response.status_code}, body={response.json()}")
-
-    def fetch_access_list_by_id(self, access_list_id: int, expand_param: list[str] | None) -> NginxAccessList:
-        response = requests.get(
-            url = f"{self.__api_url}/nginx/access-lists/{access_list_id}?expand={",".join(expand_param) if len(expand_param) > 0 else ""}",
-            headers = {"Authorization": f"Bearer {self.get_token()}"}
-        )
-
-        if response.status_code == 200:
-            data = response.json()
-            clients = [NginxAccessListClient(**client) for client in data.get("clients", [])] if data.get("clients") else None
-            return NginxAccessList(**{**data, "clients": clients})
-        elif response.status_code == 404:
-            return None
-        else:
-            raise NginxApiClientError(f"Nginx API client encountered an error: Unable to retrieve allow list by ID. status_code={response.status_code}, body={response.json()}")
+            raise NginxApiClientError(f"Nginx API client encountered an error: Unable to fetch allow list by name. status_code={response.status_code}, body={response.json()}")
 
     def update_access_list(self, access_list: NginxAccessList) -> NginxAccessList:
         response = requests.put(
             url = f"{self.__api_url}/nginx/access-lists/{access_list.id}",
             headers = {"Authorization": f"Bearer {self.get_token()}"},
-            json = access_list.to_update_request()
+            json = access_list.to_update_request(),
+            timeout = self.__REQUEST_TIMEOUT
         )
 
         if response.status_code == 200:
-            data = response.json()
-            clients = [NginxAccessListClient(**client) for client in data.get("clients", [])] if data.get("clients") else None
-            return NginxAccessList(**{**data, "clients": clients})
+            return NginxAccessList.from_dict(response.json())
         else:
             raise NginxApiClientError(f"Nginx API client encountered an error: Unable to update access list. status_code={response.status_code}, body={response.json()}")
+
+
+    def fetch_proxy_hosts_by_ip(self, ip: Optional[str] = None) -> Optional[list[NginxProxyHost]]:
+        response = requests.get(
+            url = f"{self.__api_url}/nginx/proxy-hosts",
+            headers = {"Authorization": f"Bearer {self.get_token()}"},
+            timeout = self.__REQUEST_TIMEOUT
+        )
+
+        if response.status_code == 200:
+            proxy_hosts = [NginxProxyHost.from_dict(proxy_host) for proxy_host in response.json()]
+
+            if ip is None:
+                return proxy_hosts
+            else:
+                return [proxy_host for proxy_host in proxy_hosts if proxy_host.forward_host == ip]
+        elif response.status_code == 404:
+            return None
+        else:
+            raise NginxApiClientError(f"Nginx API client encountered an error: Unable to fetch proxy hosts. status_code={response.status_code}, body={response.json()}")
+
+
+    def update_proxy_host(self, proxy_host: NginxProxyHost) -> NginxProxyHost:
+        response = requests.put(
+            url = f"{self.__api_url}/nginx/proxy-hosts/{proxy_host.id}",
+            headers = {"Authorization": f"Bearer {self.get_token()}"},
+            json = proxy_host.to_update_request(),
+            timeout = self.__REQUEST_TIMEOUT
+        )
+
+        if response.status_code == 200:
+            return NginxProxyHost.from_dict(response.json())
+        else:
+            raise NginxApiClientError(f"Nginx API client encountered an error: Unable to update proxy host. status_code={response.status_code}, body={response.json()}")

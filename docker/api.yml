@@ -1,0 +1,18 @@
+services:
+  home_network_orchestration_api:
+    container_name: home_network_orchestration_api
+    image: home_network_orchestration_api
+    build:
+      context: ../
+      dockerfile: docker/api.Dockerfile
+    dns:
+      - 1.1.1.1
+      - 1.0.0.1
+    ports:
+      - 8000:8000/tcp
+    environment:
+      TZ: America/Los_Angeles
+      NGINX_API_BASE_URL: ${NGINX_API_BASE_URL}
+      NGINX_API_IDENTITY: ${NGINX_API_IDENTITY}
+      NGINX_API_SECRET: ${NGINX_API_SECRET}
+      HOME_NETWORK_ORCHESTRATION_API_KEY_HASH: ${HOME_NETWORK_ORCHESTRATION_API_KEY_HASH}

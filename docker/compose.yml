@@ -1,0 +1,17 @@
+services:
+  home_network_orchestration_coordinator:
+    container_name: home_network_orchestration_coordinator
+    restart: always
+    network_mode: host
+    build:
+      context: ../
+      dockerfile: docker/Dockerfile
+    dns:
+      - 1.1.1.1
+      - 1.0.0.1
+    environment:
+      TZ: America/Los_Angeles
+      LINODE_API_TOKEN: ${LINODE_API_TOKEN}
+      LINODE_LABEL_NAME: ${LINODE_LABEL_NAME}
+      ORCHESTRATION_API_BASE_URL: ${ORCHESTRATION_API_BASE_URL}
+      ORCHESTRATION_API_TOKEN: ${ORCHESTRATION_API_TOKEN}
